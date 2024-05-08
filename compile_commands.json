@@ -1,0 +1,4 @@
+[{ "directory": "/home/vishforit/Desktop/kaleidoscope", 
+    "file": "kal.cpp", "output": "/tmp/kal-eca42c.o", 
+    "arguments": ["/usr/lib/llvm-19/bin/clang", "-xc++", "kal.cpp", "-o", "/tmp/kal-eca42c.o", "--driver-mode=g++", "-g", "-I", "/usr/lib/llvm-18/include", "-std=c++17", "-fno-exceptions", "-funwind-tables", "-D", "_GNU_SOURCE", "-D", "__STDC_CONSTANT_MACROS", "-D", "__STDC_FORMAT_MACROS", "-D", "__STDC_LIMIT_MACROS", "-L/usr/lib/llvm-18/lib", "-lLLVM-18", "-rdynamic", "-O3", "-dumpdir", "kal.cc-", "--target=x86_64-pc-linux-gnu"]},
+]
