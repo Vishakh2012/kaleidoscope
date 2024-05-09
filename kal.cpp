@@ -710,61 +710,65 @@ Value *IfExprAST::codegen() {
   return PN;
 }
 
-Value *ForExprAST::codegen(){
-    //emit code without the variable
-    Value *StartV = Start->codegen();
-    if(!StartV)
-        return nullptr;
-    Function *TheFunction = Builder->GetInsertBlock()->getParent();
-    BasicBlock *PreheaderBB = Builder->GetInsertBlock();//GetInsertBlock returns a pointer to the Builder where insertion has to occur
-    BasicBlock *LoopBB = BasicBlock::Create(*TheContext, "loop", TheFunction);
-
-    //fall through from current to the loopBB
-    Builder->CreateBr(LoopBB);
-    Builder->SetInsertPoint(LoopBB);
-
-    PHINode *Variable = Builder->CreatePHI(Type::getDoubleTy(*TheContext), 2, varName);
-    Variable->addIncoming(StartV, PreheaderBB);
-
-    Value *OldVal = NamedValues[varName];
-    NamedValues[varName] = Variable;
-
-    if(!Body->codegen())
-        return nullptr;
-    //Emit step value
-    Value* StepV = nullptr;
-    if(Step){
-        StepV = Step->codegen();
-        if (!StartV) {
-        return nullptr;
-        }
-    }else{
-        StepV = ConstantFP::get(*TheContext, APFloat(1.0));
-    }
-    Value *NextVar = Builder->CreateFAdd(Variable, StepV, "nextvar");
-
-    //Emit end value
-
-    Value *EndV = End->codegen();
-    if (!EndV) {
+Value *ForExprAST::codegen() {
+  // emit code without the variable
+  Value *StartV = Start->codegen();
+  if (!StartV)
     return nullptr;
+  Function *TheFunction = Builder->GetInsertBlock()->getParent();
+  BasicBlock *PreheaderBB =
+      Builder->GetInsertBlock(); // GetInsertBlock returns a pointer to the
+                                 // Builder where insertion has to occur
+  BasicBlock *LoopBB = BasicBlock::Create(*TheContext, "loop", TheFunction);
+
+  // fall through from current to the loopBB
+  Builder->CreateBr(LoopBB);
+  Builder->SetInsertPoint(LoopBB);
+
+  PHINode *Variable =
+      Builder->CreatePHI(Type::getDoubleTy(*TheContext), 2, varName);
+  Variable->addIncoming(StartV, PreheaderBB);
+
+  Value *OldVal = NamedValues[varName];
+  NamedValues[varName] = Variable;
+
+  if (!Body->codegen())
+    return nullptr;
+  // Emit step value
+  Value *StepV = nullptr;
+  if (Step) {
+    StepV = Step->codegen();
+    if (!StartV) {
+      return nullptr;
     }
-    EndV = Builder->CreateFCmpONE(EndV, ConstantFP::get(*TheContext, APFloat(0.0)), "loopcond");
-    BasicBlock *LoopEndBB = Builder->GetInsertBlock();
-    BasicBlock *AfterBB = BasicBlock::Create(*TheContext,"afterloop", TheFunction);
+  } else {
+    StepV = ConstantFP::get(*TheContext, APFloat(1.0));
+  }
+  Value *NextVar = Builder->CreateFAdd(Variable, StepV, "nextvar");
 
-    Builder->CreateCondBr(EndV,LoopBB, AfterBB );
+  // Emit end value
 
-    Builder->SetInsertPoint(AfterBB);
-    Variable->addIncoming(NextVar, LoopEndBB);
+  Value *EndV = End->codegen();
+  if (!EndV) {
+    return nullptr;
+  }
+  EndV = Builder->CreateFCmpONE(
+      EndV, ConstantFP::get(*TheContext, APFloat(0.0)), "loopcond");
+  BasicBlock *LoopEndBB = Builder->GetInsertBlock();
+  BasicBlock *AfterBB =
+      BasicBlock::Create(*TheContext, "afterloop", TheFunction);
 
-    if (OldVal) {
+  Builder->CreateCondBr(EndV, LoopBB, AfterBB);
+
+  Builder->SetInsertPoint(AfterBB);
+  Variable->addIncoming(NextVar, LoopEndBB);
+
+  if (OldVal) {
     NamedValues[varName] = OldVal;
-    }else {
+  } else {
     NamedValues.erase(varName);
-
-    }
-    return Constant::getNullValue(Type::getDoubleTy(*TheContext));
+  }
+  return Constant::getNullValue(Type::getDoubleTy(*TheContext));
 }
 //===----------------------------------------------------------------------===//
 // Top-Level parsing
