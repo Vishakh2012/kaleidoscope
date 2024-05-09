@@ -56,6 +56,8 @@ enum Token {
   tok_if = -6,
   tok_else = -7,
   tok_then = -8,
+  tok_for = -9,
+  tok_in = -10
 };
 
 static std::string IdentifierStr; // Filled in if tok_identifier
@@ -84,6 +86,12 @@ static int gettok() {
       return tok_then;
     if (IdentifierStr == "else")
       return tok_else;
+    if (IdentifierStr == "for")
+      return tok_for;
+    if (IdentifierStr == "in") {
+      return tok_in;
+    }
+
     return tok_identifier;
   }
 
@@ -209,9 +217,22 @@ public:
             std::unique_ptr<ExprAST> Else)
       : Cond(std::move(Cond)), Then(std::move(Then)), Else(std::move(Else)) {}
   Value *codegen() override;
-}; // namespace
+};
 
-}
+class ForExprAST : public ExprAST {
+  std::string varName;
+  std::unique_ptr<ExprAST> Start, End, Step, Body;
+
+public:
+  ForExprAST(std::string varName, std::unique_ptr<ExprAST> Start,
+             std::unique_ptr<ExprAST> End, std::unique_ptr<ExprAST> Step,
+             std::unique_ptr<ExprAST> Body)
+      : varName(varName), Start(std::move(Start)), End(std::move(End)),
+        Step(std::move(Step)), Body(std::move(Body)) {}
+  Value *codegen() override;
+};
+
+} // namespace
 //===----------------------------------------------------------------------===//
 //
 // Parser
@@ -341,7 +362,54 @@ static std::unique_ptr<ExprAST> ParseIfExpr() {
                                      std::move(Else));
 }
 
-// parse if expression
+std::unique_ptr<ExprAST> ParseForExpr() {
+  getNextToken(); // consume for
+  if (CurTok != tok_identifier) {
+    return LogError("expected a variable");
+  }
+  std::string varName = IdentifierStr;
+
+  getNextToken();
+
+  if (CurTok != '=') {
+    return LogError("expected assignment operator");
+  }
+  getNextToken();
+
+  auto Start = ParseExpression();
+  if (!Start)
+    return nullptr;
+
+  if (CurTok != ',') {
+    return LogError("expected , after start operation");
+  }
+  getNextToken();
+  auto End = ParseExpression();
+  if (!End)
+    return LogError("expected an end operator");
+  // step is optional
+std:
+  std::unique_ptr<ExprAST> Step;
+  if (CurTok == ',') {
+
+    getNextToken();
+    Step = ParseExpression();
+    if (!Step) {
+      return nullptr;
+    }
+  }
+  if (CurTok != tok_in) {
+    return LogError("expexted in");
+  }
+  getNextToken();
+
+  auto Body = ParseExpression();
+  if (!Body) {
+    return nullptr;
+  }
+  return std::make_unique<ForExprAST>(varName, std::move(Start), std::move(End),
+                                      std::move(Step), std::move(Body));
+}
 
 /// primary
 ///   ::= identifierexpr
@@ -640,6 +708,63 @@ Value *IfExprAST::codegen() {
   PN->addIncoming(ElseV, ElseBB);
 
   return PN;
+}
+
+Value *ForExprAST::codegen(){
+    //emit code without the variable
+    Value *StartV = Start->codegen();
+    if(!StartV)
+        return nullptr;
+    Function *TheFunction = Builder->GetInsertBlock()->getParent();
+    BasicBlock *PreheaderBB = Builder->GetInsertBlock();//GetInsertBlock returns a pointer to the Builder where insertion has to occur
+    BasicBlock *LoopBB = BasicBlock::Create(*TheContext, "loop", TheFunction);
+
+    //fall through from current to the loopBB
+    Builder->CreateBr(LoopBB);
+    Builder->SetInsertPoint(LoopBB);
+
+    PHINode *Variable = Builder->CreatePHI(Type::getDoubleTy(*TheContext), 2, varName);
+    Variable->addIncoming(StartV, PreheaderBB);
+
+    Value *OldVal = NamedValues[varName];
+    NamedValues[varName] = Variable;
+
+    if(!Body->codegen())
+        return nullptr;
+    //Emit step value
+    Value* StepV = nullptr;
+    if(Step){
+        StepV = Step->codegen();
+        if (!StartV) {
+        return nullptr;
+        }
+    }else{
+        StepV = ConstantFP::get(*TheContext, APFloat(1.0));
+    }
+    Value *NextVar = Builder->CreateFAdd(Variable, StepV, "nextvar");
+
+    //Emit end value
+
+    Value *EndV = End->codegen();
+    if (!EndV) {
+    return nullptr;
+    }
+    EndV = Builder->CreateFCmpONE(EndV, ConstantFP::get(*TheContext, APFloat(0.0)), "loopcond");
+    BasicBlock *LoopEndBB = Builder->GetInsertBlock();
+    BasicBlock *AfterBB = BasicBlock::Create(*TheContext,"afterloop", TheFunction);
+
+    Builder->CreateCondBr(EndV,LoopBB, AfterBB );
+
+    Builder->SetInsertPoint(AfterBB);
+    Variable->addIncoming(NextVar, LoopEndBB);
+
+    if (OldVal) {
+    NamedValues[varName] = OldVal;
+    }else {
+    NamedValues.erase(varName);
+
+    }
+    return Constant::getNullValue(Type::getDoubleTy(*TheContext));
 }
 //===----------------------------------------------------------------------===//
 // Top-Level parsing
